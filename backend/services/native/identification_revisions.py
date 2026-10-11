@@ -53,6 +53,7 @@ def _album_identity_revision_payload(
                 if include_row_revisions
                 else {}
             ),
+            "decision_source": track.get("track_identity_source"),
             "recording_mbid": track.get("recording_mbid"),
             "release_mbid": track.get("identity_release_mbid"),
             "release_track_mbid": track.get("release_track_mbid"),

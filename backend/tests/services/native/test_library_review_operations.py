@@ -726,17 +726,27 @@ async def _prepare_candidate_acceptance_identity_race(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("manual_override", [False, True])
+@pytest.mark.parametrize("identity_kind", ["album", "track"])
 async def test_candidate_acceptance_allows_revision_only_identity_race(
-    store: NativeLibraryStore, db_path: Path, manual_override: bool
+    store: NativeLibraryStore,
+    db_path: Path,
+    manual_override: bool,
+    identity_kind: str,
 ) -> None:
     request = await _prepare_candidate_acceptance_identity_race(
         store, manual_override=manual_override
     )
     with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            "UPDATE local_album_external_identities SET row_revision = row_revision + 1 "
-            "WHERE local_album_id = 'album-1'"
-        )
+        if identity_kind == "album":
+            connection.execute(
+                "UPDATE local_album_external_identities SET row_revision = row_revision + 1 "
+                "WHERE local_album_id = 'album-1'"
+            )
+        else:
+            connection.execute(
+                "UPDATE local_track_external_identities SET row_revision = row_revision + 1 "
+                "WHERE local_track_id = 'track-1-1'"
+            )
 
     response = await LibraryReviewService(store).accept_candidate(
         "review-1", request, "admin", now=3
@@ -747,7 +757,7 @@ async def test_candidate_acceptance_allows_revision_only_identity_race(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("manual_override", [False, True])
-@pytest.mark.parametrize("identity_kind", ["album", "track"])
+@pytest.mark.parametrize("identity_kind", ["album", "track", "track_source"])
 async def test_candidate_acceptance_rejects_material_identity_race(
     store: NativeLibraryStore,
     db_path: Path,
@@ -763,11 +773,16 @@ async def test_candidate_acceptance_rejects_material_identity_race(
                 "UPDATE local_album_external_identities SET release_mbid = 'changed-release', "
                 "row_revision = row_revision + 1 WHERE local_album_id = 'album-1'"
             )
-        else:
+        elif identity_kind == "track":
             connection.execute(
                 "UPDATE local_track_external_identities SET recording_mbid = "
                 "'changed-recording', row_revision = row_revision + 1 "
                 "WHERE local_track_id = 'track-1-1'"
+            )
+        else:
+            connection.execute(
+                "UPDATE local_track_external_identities SET decision_source = 'manual', "
+                "row_revision = row_revision + 1 WHERE local_track_id = 'track-1-1'"
             )
 
     with pytest.raises(StaleRevisionError, match="identity changed"):

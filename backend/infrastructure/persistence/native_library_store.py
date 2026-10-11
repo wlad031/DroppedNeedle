@@ -576,6 +576,7 @@ def _album_identity_revision_payload(
                 if include_row_revisions
                 else {}
             ),
+            "decision_source": row["track_identity_source"],
             "recording_mbid": row["recording_mbid"],
             "release_mbid": row["identity_release_mbid"],
             "release_track_mbid": row["release_track_mbid"],
@@ -685,7 +686,8 @@ def _identification_identity_rows(
         (album_id,),
     ).fetchone()
     tracks = connection.execute(
-        "SELECT t.id,i.row_revision AS identity_row_revision,i.recording_mbid,"
+        "SELECT t.id,i.row_revision AS identity_row_revision,i.decision_source "
+        "AS track_identity_source,i.recording_mbid,"
         "i.release_mbid AS identity_release_mbid,i.release_track_mbid,"
         "i.medium_position,i.release_track_position FROM local_tracks t "
         "LEFT JOIN local_track_external_identities i ON i.local_track_id=t.id "
@@ -8899,11 +8901,8 @@ class NativeLibraryStore(PersistenceBase):
             # was evaluated from instead of tripping on our own write; any later
             # change still mismatches and stays stale-guarded.
             attempt_identity_revision_value = attempt.input_identity_revision
-            # Tier confirmation writes an RG pin before review acceptance. It
-            # retains the existing strict post-write guard rather than storing
-            # a pre-write semantic snapshot that would stale on its own pin.
             attempt_acceptance_identity_revision_value = (
-                "" if is_tier else attempt.acceptance_identity_revision
+                attempt.acceptance_identity_revision
             )
             if is_tier and not protected_identity and not held_exact:
                 post_row_revision = (
@@ -8911,14 +8910,19 @@ class NativeLibraryStore(PersistenceBase):
                     if current_before is not None
                     else 1
                 )
+                post_tier_identity = {
+                    "row_revision": post_row_revision,
+                    "release_group_mbid": tier_rg,
+                    "release_mbid": None,
+                    "decision_source": decision_source,
+                }
                 attempt_identity_revision_value = _album_identity_revision(
-                    {
-                        "row_revision": post_row_revision,
-                        "release_group_mbid": tier_rg,
-                        "release_mbid": None,
-                        "decision_source": decision_source,
-                    },
-                    current_identity_tracks,
+                    post_tier_identity, current_identity_tracks
+                )
+                attempt_acceptance_identity_revision_value = (
+                    _album_acceptance_identity_revision(
+                        post_tier_identity, current_identity_tracks
+                    )
                 )
             selected = next(
                 (
