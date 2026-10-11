@@ -548,15 +548,21 @@ def _album_input_revision(rows: list[sqlite3.Row]) -> str:
     )
 
 
-def _album_identity_revision(
+def _album_identity_revision_payload(
     album_identity: sqlite3.Row | None,
     tracks: list[sqlite3.Row],
-) -> str:
+    *,
+    include_row_revisions: bool,
+) -> dict[str, object]:
     album_payload = (
         None
         if album_identity is None
         else {
-            "row_revision": album_identity["row_revision"],
+            **(
+                {"row_revision": album_identity["row_revision"]}
+                if include_row_revisions
+                else {}
+            ),
             "release_group_mbid": album_identity["release_group_mbid"],
             "release_mbid": album_identity["release_mbid"],
             "decision_source": album_identity["decision_source"],
@@ -565,7 +571,11 @@ def _album_identity_revision(
     track_payload = [
         {
             "id": row["id"],
-            "identity_row_revision": row["identity_row_revision"],
+            **(
+                {"identity_row_revision": row["identity_row_revision"]}
+                if include_row_revisions
+                else {}
+            ),
             "recording_mbid": row["recording_mbid"],
             "release_mbid": row["identity_release_mbid"],
             "release_track_mbid": row["release_track_mbid"],
@@ -574,13 +584,37 @@ def _album_identity_revision(
         }
         for row in sorted(tracks, key=lambda row: str(row["id"]))
     ]
+    return {"album": album_payload, "tracks": track_payload}
+
+
+def _identity_revision_digest(payload: dict[str, object]) -> str:
     return hashlib.sha256(
-        json.dumps(
-            {"album": album_payload, "tracks": track_payload},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _album_identity_revision(
+    album_identity: sqlite3.Row | None,
+    tracks: list[sqlite3.Row],
+) -> str:
+    return _identity_revision_digest(
+        _album_identity_revision_payload(
+            album_identity, tracks, include_row_revisions=True
+        )
+    )
+
+
+def _album_acceptance_identity_revision(
+    album_identity: sqlite3.Row | None,
+    tracks: list[sqlite3.Row],
+) -> str:
+    """Digest durable identity values while deliberately ignoring row revisions."""
+
+    return _identity_revision_digest(
+        _album_identity_revision_payload(
+            album_identity, tracks, include_row_revisions=False
+        )
+    )
 
 
 # Mirrors the engine's winner margin (CANDIDATE_MARGIN_FLOOR): a
@@ -1815,6 +1849,7 @@ class NativeLibraryStore(PersistenceBase):
                 "ALTER TABLE local_tracks ADD COLUMN embedded_artist_mbid TEXT",
                 "ALTER TABLE local_tracks ADD COLUMN embedded_album_artist_mbid TEXT",
                 "ALTER TABLE library_identification_attempts ADD COLUMN input_identity_revision TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE library_identification_attempts ADD COLUMN acceptance_identity_revision TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE library_reidentification_snapshots ADD COLUMN expected_identity_revision TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE library_reidentification_snapshots ADD COLUMN requested_release_mbid TEXT",
                 "ALTER TABLE library_custom_edition_manifests ADD COLUMN album_metadata_json TEXT NOT NULL DEFAULT '{}'",
@@ -7975,10 +8010,10 @@ class NativeLibraryStore(PersistenceBase):
                 "INSERT INTO library_identification_attempts "
                 "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                 "input_tag_revision, input_policy_revision, input_file_revision, "
-                "input_identity_revision, matcher_version, "
+                "input_identity_revision, acceptance_identity_revision, matcher_version, "
                 "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                 "degradation_flags_json, started_at, completed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     attempt.id,
                     attempt.local_album_id,
@@ -7989,6 +8024,7 @@ class NativeLibraryStore(PersistenceBase):
                     attempt.input_policy_revision,
                     attempt.input_file_revision,
                     attempt.input_identity_revision,
+                    attempt.acceptance_identity_revision,
                     attempt.matcher_version,
                     attempt.state,
                     attempt.terminal_reason_code,
@@ -8483,10 +8519,10 @@ class NativeLibraryStore(PersistenceBase):
                 "INSERT INTO library_identification_attempts "
                 "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                 "input_tag_revision, input_policy_revision, input_file_revision, "
-                "input_identity_revision, matcher_version, "
+                "input_identity_revision, acceptance_identity_revision, matcher_version, "
                 "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                 "degradation_flags_json, started_at, completed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     attempt.id,
                     attempt.local_album_id,
@@ -8497,6 +8533,7 @@ class NativeLibraryStore(PersistenceBase):
                     attempt.input_policy_revision,
                     attempt.input_file_revision,
                     attempt.input_identity_revision,
+                    attempt.acceptance_identity_revision,
                     attempt.matcher_version,
                     attempt.state,
                     attempt.terminal_reason_code,
@@ -8862,6 +8899,12 @@ class NativeLibraryStore(PersistenceBase):
             # was evaluated from instead of tripping on our own write; any later
             # change still mismatches and stays stale-guarded.
             attempt_identity_revision_value = attempt.input_identity_revision
+            # Tier confirmation writes an RG pin before review acceptance. It
+            # retains the existing strict post-write guard rather than storing
+            # a pre-write semantic snapshot that would stale on its own pin.
+            attempt_acceptance_identity_revision_value = (
+                "" if is_tier else attempt.acceptance_identity_revision
+            )
             if is_tier and not protected_identity and not held_exact:
                 post_row_revision = (
                     int(current_before["row_revision"]) + 1
@@ -8944,10 +8987,10 @@ class NativeLibraryStore(PersistenceBase):
                 "INSERT INTO library_identification_attempts "
                 "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                 "input_tag_revision, input_policy_revision, input_file_revision, "
-                "input_identity_revision, matcher_version, "
+                "input_identity_revision, acceptance_identity_revision, matcher_version, "
                 "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                 "degradation_flags_json, started_at, completed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     attempt.id,
                     attempt.local_album_id,
@@ -8958,6 +9001,7 @@ class NativeLibraryStore(PersistenceBase):
                     attempt.input_policy_revision,
                     attempt.input_file_revision,
                     attempt_identity_revision_value,
+                    attempt_acceptance_identity_revision_value,
                     attempt.matcher_version,
                     attempt.state,
                     attempt.terminal_reason_code,
@@ -19495,7 +19539,7 @@ class NativeLibraryStore(PersistenceBase):
             )
             attempt = connection.execute(
                 "SELECT input_tag_revision,input_file_revision,input_policy_revision,"
-                "input_identity_revision "
+                "input_identity_revision,acceptance_identity_revision "
                 "FROM library_identification_attempts WHERE id = ?",
                 (review["attempt_id"],),
             ).fetchone()
@@ -19520,9 +19564,24 @@ class NativeLibraryStore(PersistenceBase):
             current_album_identity, current_identity_tracks = (
                 _identification_identity_rows(connection, str(review["local_album_id"]))
             )
-            if not attempt["input_identity_revision"] or _album_identity_revision(
-                current_album_identity, current_identity_tracks
-            ) != str(attempt["input_identity_revision"]):
+            acceptance_identity_revision = str(
+                attempt["acceptance_identity_revision"] or ""
+            )
+            if acceptance_identity_revision:
+                identity_is_current = (
+                    _album_acceptance_identity_revision(
+                        current_album_identity, current_identity_tracks
+                    )
+                    == acceptance_identity_revision
+                )
+            else:
+                # Attempts recorded before the semantic acceptance snapshot was
+                # introduced retain the strict revision guard.
+                identity_is_current = bool(attempt["input_identity_revision"]) and (
+                    _album_identity_revision(current_album_identity, current_identity_tracks)
+                    == str(attempt["input_identity_revision"])
+                )
+            if not identity_is_current:
                 raise StaleRevisionError(
                     "The album identity changed after candidate evaluation."
                 )
@@ -29070,10 +29129,10 @@ class NativeLibraryStore(PersistenceBase):
                 "INSERT INTO library_identification_attempts "
                 "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                 "input_tag_revision, input_policy_revision, input_file_revision, "
-                "input_identity_revision, matcher_version, "
+                "input_identity_revision, acceptance_identity_revision, matcher_version, "
                 "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                 "degradation_flags_json, started_at, completed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     attempt.id,
                     attempt.local_album_id,
@@ -29084,6 +29143,7 @@ class NativeLibraryStore(PersistenceBase):
                     attempt.input_policy_revision,
                     attempt.input_file_revision,
                     attempt.input_identity_revision,
+                    attempt.acceptance_identity_revision,
                     attempt.matcher_version,
                     attempt.state,
                     attempt.terminal_reason_code,
@@ -32107,10 +32167,10 @@ class NativeLibraryStore(PersistenceBase):
                     "INSERT INTO library_identification_attempts "
                     "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                     "input_tag_revision, input_policy_revision, input_file_revision, "
-                    "input_identity_revision, matcher_version, "
+                    "input_identity_revision, acceptance_identity_revision, matcher_version, "
                     "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                     "degradation_flags_json, started_at, completed_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         attempt.id,
                         attempt.local_album_id,
@@ -32121,6 +32181,7 @@ class NativeLibraryStore(PersistenceBase):
                         attempt.input_policy_revision,
                         attempt.input_file_revision,
                         attempt.input_identity_revision,
+                        attempt.acceptance_identity_revision,
                         attempt.matcher_version,
                         attempt.state,
                         attempt.terminal_reason_code,
@@ -36021,10 +36082,10 @@ class NativeLibraryStore(PersistenceBase):
                 "INSERT INTO library_identification_attempts "
                 "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                 "input_tag_revision, input_policy_revision, input_file_revision, "
-                "input_identity_revision, matcher_version, "
+                "input_identity_revision, acceptance_identity_revision, matcher_version, "
                 "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                 "degradation_flags_json, started_at, completed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     attempt.id,
                     attempt.local_album_id,
@@ -36035,6 +36096,7 @@ class NativeLibraryStore(PersistenceBase):
                     attempt.input_policy_revision,
                     attempt.input_file_revision,
                     attempt.input_identity_revision,
+                    attempt.acceptance_identity_revision,
                     attempt.matcher_version,
                     attempt.state,
                     attempt.terminal_reason_code,
@@ -36808,10 +36870,10 @@ class NativeLibraryStore(PersistenceBase):
                 "INSERT INTO library_identification_attempts "
                 "(id, local_album_id, local_track_id, trigger, requested_by_user_id, "
                 "input_tag_revision, input_policy_revision, input_file_revision, "
-                "input_identity_revision, matcher_version, "
+                "input_identity_revision, acceptance_identity_revision, matcher_version, "
                 "state, terminal_reason_code, selected_candidate_key, candidate_count, "
                 "degradation_flags_json, started_at, completed_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     attempt.id,
                     attempt.local_album_id,
@@ -36822,6 +36884,7 @@ class NativeLibraryStore(PersistenceBase):
                     attempt.input_policy_revision,
                     attempt.input_file_revision,
                     attempt.input_identity_revision,
+                    attempt.acceptance_identity_revision,
                     attempt.matcher_version,
                     "identified" if final_outcome == "identified" else "needs_review",
                     final_failure or attempt.terminal_reason_code,

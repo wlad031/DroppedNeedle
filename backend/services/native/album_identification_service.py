@@ -59,6 +59,7 @@ from services.native.identification_queue_service import (
     IdentificationQueueService,
 )
 from services.native.identification_revisions import (
+    album_acceptance_identity_revision,
     album_identity_revision,
     album_input_revisions,
 )
@@ -1214,6 +1215,9 @@ class AlbumIdentificationService:
                 input_file_revision=file_revision,
                 input_policy_revision=policy_revision,
                 input_identity_revision=identity_revision,
+                acceptance_identity_revision=album_acceptance_identity_revision(
+                    context["identity"], raw_tracks
+                ),
                 matcher_version=MATCHER_VERSION,
                 state=decision.outcome,
                 terminal_reason_code=decision.reason_code,

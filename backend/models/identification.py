@@ -177,6 +177,7 @@ class IdentificationAttempt(AppStruct):
     input_policy_revision: str = ""
     input_file_revision: str = ""
     input_identity_revision: str = ""
+    acceptance_identity_revision: str = ""
     matcher_version: str = ""
     state: str = "completed"
     terminal_reason_code: str = ""

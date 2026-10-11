@@ -25,17 +25,21 @@ def album_input_revisions(tracks: list[dict]) -> tuple[str, str, str]:
     )
 
 
-def album_identity_revision(
+def _album_identity_revision_payload(
     album_identity: Mapping[str, object] | None,
     tracks: list[Mapping[str, object]],
-) -> str:
-    """Seal the provider identities used while evaluating an indexed album."""
-
+    *,
+    include_row_revisions: bool,
+) -> dict[str, object]:
     album_payload = (
         None
         if album_identity is None
         else {
-            "row_revision": album_identity.get("row_revision"),
+            **(
+                {"row_revision": album_identity.get("row_revision")}
+                if include_row_revisions
+                else {}
+            ),
             "release_group_mbid": album_identity.get("release_group_mbid"),
             "release_mbid": album_identity.get("release_mbid"),
             "decision_source": album_identity.get("decision_source"),
@@ -44,7 +48,11 @@ def album_identity_revision(
     track_payload = [
         {
             "id": track.get("id"),
-            "identity_row_revision": track.get("identity_row_revision"),
+            **(
+                {"identity_row_revision": track.get("identity_row_revision")}
+                if include_row_revisions
+                else {}
+            ),
             "recording_mbid": track.get("recording_mbid"),
             "release_mbid": track.get("identity_release_mbid"),
             "release_track_mbid": track.get("release_track_mbid"),
@@ -53,10 +61,41 @@ def album_identity_revision(
         }
         for track in sorted(tracks, key=lambda track: str(track.get("id")))
     ]
+    return {"album": album_payload, "tracks": track_payload}
+
+
+def _digest_identity_payload(payload: dict[str, object]) -> str:
     return hashlib.sha256(
-        json.dumps(
-            {"album": album_payload, "tracks": track_payload},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def album_identity_revision(
+    album_identity: Mapping[str, object] | None,
+    tracks: list[Mapping[str, object]],
+) -> str:
+    """Seal the full identity revision used by workers and job lifecycle checks."""
+
+    return _digest_identity_payload(
+        _album_identity_revision_payload(
+            album_identity, tracks, include_row_revisions=True
+        )
+    )
+
+
+def album_acceptance_identity_revision(
+    album_identity: Mapping[str, object] | None,
+    tracks: list[Mapping[str, object]],
+) -> str:
+    """Seal identity values that candidate acceptance must not overwrite.
+
+    Row revisions are deliberately excluded: accepting the candidate replaces
+    identities itself, while a revision-only concurrent write leaves the
+    evaluated identity values intact.
+    """
+
+    return _digest_identity_payload(
+        _album_identity_revision_payload(
+            album_identity, tracks, include_row_revisions=False
+        )
+    )

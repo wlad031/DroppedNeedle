@@ -72,6 +72,7 @@ from services.native.album_identification_service import (
 )
 from services.native.conditional_fingerprint_service import FINGERPRINTER_VERSION
 from services.native.identification_revisions import (
+    album_acceptance_identity_revision,
     album_identity_revision,
     album_input_revisions,
 )
@@ -1537,6 +1538,9 @@ class IdentityRepairService:
                     input_file_revision=revisions[1],
                     input_policy_revision=revisions[2],
                     input_identity_revision=album_identity_revision(identity, tracks),
+                    acceptance_identity_revision=album_acceptance_identity_revision(
+                        identity, tracks
+                    ),
                     matcher_version=MATCHER_VERSION,
                     state=(
                         "identified"

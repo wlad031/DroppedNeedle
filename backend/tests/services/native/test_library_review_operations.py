@@ -100,6 +100,7 @@ from services.native.explicit_reidentification_worker import (
 from services.native.identification_queue_service import IdentificationQueueService
 from services.native.identity_repair_service import IdentityRepairService
 from services.native.identification_revisions import (
+    album_acceptance_identity_revision,
     album_identity_revision,
     album_input_revisions,
 )
@@ -646,6 +647,133 @@ async def _seed_album(
                 ),
                 expected_track_revision=int(row["row_revision"]),
             )
+
+
+async def _prepare_candidate_acceptance_identity_race(
+    store: NativeLibraryStore,
+    *,
+    manual_override: bool,
+) -> CandidateAcceptanceRequest:
+    await _seed_album(store, "1", identity_source="automatic", two_tracks=True)
+    context = await store.get_album_identification_context("album-1")
+    assert context is not None
+    tag_revision, file_revision, policy_revision = album_input_revisions(
+        context["tracks"]
+    )
+    candidate_key = "rg-reviewed:release-reviewed"
+    attempt = IdentificationAttempt(
+        id="candidate-acceptance-race-attempt",
+        local_album_id="album-1",
+        input_tag_revision=tag_revision,
+        input_file_revision=file_revision,
+        input_policy_revision=policy_revision,
+        input_identity_revision=album_identity_revision(
+            context["identity"], context["tracks"]
+        ),
+        acceptance_identity_revision=album_acceptance_identity_revision(
+            context["identity"], context["tracks"]
+        ),
+        matcher_version="feedback-fixes-v1",
+        state="identified",
+        terminal_reason_code="SUPPORTED",
+        selected_candidate_key=candidate_key,
+        candidate_count=1,
+        started_at=2,
+        completed_at=2,
+    )
+    evidence = CandidateEvidence(
+        release_group_mbid="rg-reviewed",
+        release_mbid="release-reviewed",
+        matcher_version="feedback-fixes-v1",
+        track_evidence=[
+            TrackEvidence(
+                local_track_id="track-1-1",
+                classification="supported",
+                recording_mbid="recording-reviewed-1",
+            ),
+            TrackEvidence(
+                local_track_id="track-1-2",
+                classification="supported",
+                recording_mbid="recording-reviewed-2",
+            ),
+        ],
+        reason_code="SUPPORTED",
+    )
+    await store.replace_review_attempt(
+        "review-1",
+        expected_review_revision=1,
+        attempt=attempt,
+        evidence=[
+            IdentificationEvidenceRecord(
+                id="candidate-acceptance-race-evidence",
+                attempt_id=attempt.id,
+                candidate_key=candidate_key,
+                evidence=evidence,
+                created_at=2,
+            )
+        ],
+        updated_at=2,
+    )
+    return CandidateAcceptanceRequest(
+        expected_review_revision=2,
+        expected_catalog_revision=await store.get_catalog_revision(),
+        expected_evidence_revision="candidate-acceptance-race-evidence",
+        candidate_key=candidate_key,
+        manual_override=manual_override,
+        confirmation=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("manual_override", [False, True])
+async def test_candidate_acceptance_allows_revision_only_identity_race(
+    store: NativeLibraryStore, db_path: Path, manual_override: bool
+) -> None:
+    request = await _prepare_candidate_acceptance_identity_race(
+        store, manual_override=manual_override
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE local_album_external_identities SET row_revision = row_revision + 1 "
+            "WHERE local_album_id = 'album-1'"
+        )
+
+    response = await LibraryReviewService(store).accept_candidate(
+        "review-1", request, "admin", now=3
+    )
+
+    assert response.state == "resolved"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("manual_override", [False, True])
+@pytest.mark.parametrize("identity_kind", ["album", "track"])
+async def test_candidate_acceptance_rejects_material_identity_race(
+    store: NativeLibraryStore,
+    db_path: Path,
+    manual_override: bool,
+    identity_kind: str,
+) -> None:
+    request = await _prepare_candidate_acceptance_identity_race(
+        store, manual_override=manual_override
+    )
+    with sqlite3.connect(db_path) as connection:
+        if identity_kind == "album":
+            connection.execute(
+                "UPDATE local_album_external_identities SET release_mbid = 'changed-release', "
+                "row_revision = row_revision + 1 WHERE local_album_id = 'album-1'"
+            )
+        else:
+            connection.execute(
+                "UPDATE local_track_external_identities SET recording_mbid = "
+                "'changed-recording', row_revision = row_revision + 1 "
+                "WHERE local_track_id = 'track-1-1'"
+            )
+
+    with pytest.raises(StaleRevisionError, match="identity changed"):
+        await LibraryReviewService(store).accept_candidate(
+            "review-1", request, "admin", now=3
+        )
 
 
 @pytest.mark.asyncio

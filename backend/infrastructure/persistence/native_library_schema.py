@@ -350,6 +350,7 @@ CREATE TABLE IF NOT EXISTS library_identification_attempts (
     input_policy_revision TEXT NOT NULL,
     input_file_revision TEXT NOT NULL,
     input_identity_revision TEXT NOT NULL DEFAULT '',
+    acceptance_identity_revision TEXT NOT NULL DEFAULT '',
     matcher_version TEXT NOT NULL,
     state TEXT NOT NULL,
     terminal_reason_code TEXT NOT NULL,

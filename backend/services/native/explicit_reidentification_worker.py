@@ -40,6 +40,7 @@ from services.native.conditional_fingerprint_service import (
     ConditionalFingerprintService,
 )
 from services.native.identification_revisions import (
+    album_acceptance_identity_revision,
     album_identity_revision,
     album_input_revisions,
 )
@@ -141,6 +142,9 @@ class ExplicitReidentificationWorker:
                 now=timestamp,
             )
         identity_revision = album_identity_revision(context["identity"], raw_tracks)
+        acceptance_identity_revision = album_acceptance_identity_revision(
+            context["identity"], raw_tracks
+        )
         if identity_revision != str(snapshot["expected_identity_revision"]):
             return await self._store.finish_operation_job(
                 str(job["id"]),
@@ -463,6 +467,7 @@ class ExplicitReidentificationWorker:
                     input_file_revision=revisions[1],
                     input_policy_revision=revisions[2],
                     input_identity_revision=identity_revision,
+                    acceptance_identity_revision=acceptance_identity_revision,
                     matcher_version=MATCHER_VERSION,
                     state="provider_deferred",
                     terminal_reason_code="UNMAPPABLE_PROVIDER_PAYLOAD",
@@ -491,6 +496,7 @@ class ExplicitReidentificationWorker:
                 input_file_revision=revisions[1],
                 input_policy_revision=revisions[2],
                 input_identity_revision=identity_revision,
+                acceptance_identity_revision=acceptance_identity_revision,
                 matcher_version=MATCHER_VERSION,
                 state=decision.outcome,
                 terminal_reason_code=(
@@ -528,6 +534,7 @@ class ExplicitReidentificationWorker:
                 input_file_revision=revisions[1],
                 input_policy_revision=revisions[2],
                 input_identity_revision=identity_revision,
+                acceptance_identity_revision=acceptance_identity_revision,
                 matcher_version=MATCHER_VERSION,
                 state="provider_deferred",
                 terminal_reason_code="UNMAPPABLE_PROVIDER_PAYLOAD",
@@ -567,6 +574,7 @@ class ExplicitReidentificationWorker:
                 input_file_revision=revisions[1],
                 input_policy_revision=revisions[2],
                 input_identity_revision=identity_revision,
+                acceptance_identity_revision=acceptance_identity_revision,
                 matcher_version=MATCHER_VERSION,
                 state="provider_deferred",
                 terminal_reason_code="FINGERPRINT_LOCAL_FAILURE",
@@ -606,6 +614,7 @@ class ExplicitReidentificationWorker:
                 input_file_revision=revisions[1],
                 input_policy_revision=revisions[2],
                 input_identity_revision=identity_revision,
+                acceptance_identity_revision=acceptance_identity_revision,
                 matcher_version=MATCHER_VERSION,
                 state="provider_deferred",
                 terminal_reason_code="PROVIDER_TEMPORARILY_UNAVAILABLE",
