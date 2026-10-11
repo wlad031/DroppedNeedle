@@ -1295,6 +1295,13 @@ async def test_review_candidate_acceptance_preserves_missing_track_identity_hist
         ],
         updated_at=2,
     )
+    # A concurrent identity write must not stale immutable candidate evidence:
+    # acceptance replaces that identity while review/evidence/file CAS remain current.
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE local_album_external_identities "
+            "SET row_revision = row_revision + 1 WHERE local_album_id = 'album-1'"
+        )
 
     await LibraryReviewService(store).accept_candidate(
         "review-1",

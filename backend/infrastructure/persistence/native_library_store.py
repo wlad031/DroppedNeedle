@@ -19494,8 +19494,7 @@ class NativeLibraryStore(PersistenceBase):
                 bytes(evidence_row["evidence_json"]), type=CandidateEvidence
             )
             attempt = connection.execute(
-                "SELECT input_tag_revision,input_file_revision,input_policy_revision,"
-                "input_identity_revision "
+                "SELECT input_tag_revision,input_file_revision,input_policy_revision "
                 "FROM library_identification_attempts WHERE id = ?",
                 (review["attempt_id"],),
             ).fetchone()
@@ -19517,15 +19516,12 @@ class NativeLibraryStore(PersistenceBase):
                 raise StaleRevisionError(
                     "The album files changed after candidate evaluation."
                 )
-            current_album_identity, current_identity_tracks = (
-                _identification_identity_rows(connection, str(review["local_album_id"]))
-            )
-            if not attempt["input_identity_revision"] or _album_identity_revision(
-                current_album_identity, current_identity_tracks
-            ) != str(attempt["input_identity_revision"]):
-                raise StaleRevisionError(
-                    "The album identity changed after candidate evaluation."
-                )
+            # Candidate evidence is already bound to this immutable attempt and
+            # guarded above by its evidence revision plus the current file-input
+            # revision. Accepting a candidate *replaces* album identity, so a
+            # concurrent identity write must not invalidate otherwise-current
+            # candidate evidence. The review and evidence CAS checks preserve
+            # genuine stale-input protection.
             if (
                 evidence.reason_code not in AUTOMATIC_SAFE_EVIDENCE_REASONS
                 and not manual_override
