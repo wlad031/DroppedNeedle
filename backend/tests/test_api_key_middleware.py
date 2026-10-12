@@ -1,11 +1,11 @@
 import json
 from types import SimpleNamespace
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
 from infrastructure.persistence.auth_store import UserRecord
-from middleware import AuthMiddleware
+from middleware import AuthMiddleware, _get_current_admin
 
 
 def test_api_key_scope_registry_is_allowlisted():
@@ -31,11 +31,16 @@ def test_scoped_api_key_preserves_session_auth_and_denies_unregistered_routes(mo
 
     valid_key = "dnk_0123456789abcdef0123456789abcdef_secret"
     key_with_underscore = f"{valid_key}_with_underscore"
+    expired_key = "dnk_0123456789abcdef0123456789abcdef_expired"
+    revoked_key = "dnk_0123456789abcdef0123456789abcdef_revoked"
 
     class FakeApiKeys:
         async def verify(self, raw: str):
             if raw in {valid_key, key_with_underscore}:
                 return user, SimpleNamespace(scopes_json=json.dumps(["catalog:read"]))
+            # Expired and revoked credentials are absent from the active-key lookup.
+            if raw in {expired_key, revoked_key}:
+                return None
             return None
 
     import core.dependencies.auth_providers as providers
@@ -49,6 +54,14 @@ def test_scoped_api_key_preserves_session_auth_and_denies_unregistered_routes(mo
     @app.get("/api/v1/albums/demo")
     async def catalog(request: Request):
         return {"user": request.state.user.id, "api_key": request.state.api_key is not None}
+
+    @app.post("/api/v1/playlists")
+    async def create_playlist():
+        return {"created": True}
+
+    @app.get("/api/v1/albums/admin")
+    async def admin_catalog(_: UserRecord = Depends(_get_current_admin)):
+        return {"admin": True}
 
     @app.get("/api/v1/stream/demo")
     async def stream():
@@ -70,5 +83,9 @@ def test_scoped_api_key_preserves_session_auth_and_denies_unregistered_routes(mo
 
     invalid_key = "dnk_0123456789abcdef0123456789abcdef_invalid_secret"
     assert client.get("/api/v1/albums/demo", headers={"Authorization": f"Bearer {invalid_key}"}).status_code == 401
+    assert client.get("/api/v1/albums/demo", headers={"Authorization": f"Bearer {expired_key}"}).status_code == 401
+    assert client.get("/api/v1/albums/demo", headers={"Authorization": f"Bearer {revoked_key}"}).status_code == 401
+    assert client.post("/api/v1/playlists", headers={"Authorization": f"Bearer {valid_key}"}).status_code == 403
+    assert client.get("/api/v1/albums/admin", headers={"Authorization": f"Bearer {valid_key}"}).status_code == 403
     assert client.get("/api/v1/stream/demo", headers={"Authorization": f"Bearer {valid_key}"}).status_code == 403
     assert client.get("/api/v1/admin/unknown", headers={"Authorization": f"Bearer {valid_key}"}).status_code == 403
