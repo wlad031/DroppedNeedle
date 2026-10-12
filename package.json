@@ -3,6 +3,6 @@
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "test": "pnpm --dir frontend exec vitest run src/lib/components/profile/ProfileApiKeys.svelte.spec.ts"
+    "test": "sh -c 'cd backend && .venv/bin/python -m pytest tests/services/test_api_key_service.py tests/test_api_key_middleware.py && cd ../frontend && pnpm exec vitest run src/lib/components/profile/ProfileApiKeys.svelte.spec.ts'"
   }
 }
