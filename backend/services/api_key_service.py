@@ -55,9 +55,11 @@ class ApiKeyService:
             raise ValueError("Invalid API key scopes")
         if expires_at is not None:
             try:
-                if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+                parsed_expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                if parsed_expiry.tzinfo is None or parsed_expiry <= datetime.now(timezone.utc):
                     raise ValueError
-            except ValueError:
+                expires_at = parsed_expiry.astimezone(timezone.utc).isoformat()
+            except (TypeError, ValueError):
                 raise ValueError("Expiry must be an ISO-8601 timestamp in the future")
         if len(await self._store.list_active_for_user(user_id, _now())) >= MAX_ACTIVE_API_KEYS:
             raise ConflictError(f"API-key limit reached ({MAX_ACTIVE_API_KEYS})")
