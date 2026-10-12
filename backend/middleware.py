@@ -256,7 +256,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
  
         # `dnk_` is a dedicated scoped REST credential.  Compatibility
         # app-passwords never enter this path and remain protocol-only.
-        if raw_token.startswith("dnk_") and raw_token.count("_") == 2:
+        if re.match(r"^dnk_[0-9a-f]{32}_", raw_token):
             from core.dependencies.auth_providers import get_api_key_service
 
             key_result = await get_api_key_service().verify(raw_token)
@@ -294,7 +294,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _api_key_allows(method: str, path: str, scopes: set[str]) -> bool:
-        if path.endswith("/request-missing"):
+        if re.fullmatch(r"/api/v1/playlists/[^/]+/request-missing", path):
             return method == "POST" and "requests:write" in scopes
         return any(method in methods and pattern.match(path) and scope in scopes for methods, scope, pattern in _API_KEY_POLICY)
 

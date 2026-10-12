@@ -15,6 +15,7 @@ def test_api_key_scope_registry_is_allowlisted():
     assert not AuthMiddleware._api_key_allows("GET", "/api/v1/stream/abc", {"catalog:read"})
     assert not AuthMiddleware._api_key_allows("POST", "/api/v1/playlists/p/request-missing", {"playlists:write"})
     assert AuthMiddleware._api_key_allows("POST", "/api/v1/playlists/p/request-missing", {"requests:write"})
+    assert not AuthMiddleware._api_key_allows("POST", "/api/v1/anything/request-missing", {"requests:write"})
     assert not AuthMiddleware._api_key_allows("POST", "/api/v1/settings", {"catalog:read"})
     assert not AuthMiddleware._api_key_allows("DELETE", "/api/v1/downloads/abc", {"requests:write"})
     assert not AuthMiddleware._api_key_allows("GET", "/api/v1/profile/api-keys", {"catalog:read"})
@@ -28,9 +29,12 @@ def test_scoped_api_key_preserves_session_auth_and_denies_unregistered_routes(mo
         async def verify_token(self, raw: str):
             return (user, SimpleNamespace(id="session")) if raw == "session-token" else None
 
+    valid_key = "dnk_0123456789abcdef0123456789abcdef_secret"
+    key_with_underscore = f"{valid_key}_with_underscore"
+
     class FakeApiKeys:
         async def verify(self, raw: str):
-            if raw == "dnk_valid_secret":
+            if raw in {valid_key, key_with_underscore}:
                 return user, SimpleNamespace(scopes_json=json.dumps(["catalog:read"]))
             return None
 
@@ -59,10 +63,12 @@ def test_scoped_api_key_preserves_session_auth_and_denies_unregistered_routes(mo
     assert session.status_code == 200
     assert session.json() == {"user": "owner", "api_key": False}
 
-    scoped = client.get("/api/v1/albums/demo", headers={"Authorization": "Bearer dnk_valid_secret"})
+    scoped = client.get("/api/v1/albums/demo", headers={"Authorization": f"Bearer {valid_key}"})
     assert scoped.status_code == 200
     assert scoped.json() == {"user": "owner", "api_key": True}
+    assert client.get("/api/v1/albums/demo", headers={"Authorization": f"Bearer {key_with_underscore}"}).status_code == 200
 
-    assert client.get("/api/v1/albums/demo", headers={"Authorization": "Bearer dnk_invalid_secret"}).status_code == 401
-    assert client.get("/api/v1/stream/demo", headers={"Authorization": "Bearer dnk_valid_secret"}).status_code == 403
-    assert client.get("/api/v1/admin/unknown", headers={"Authorization": "Bearer dnk_valid_secret"}).status_code == 403
+    invalid_key = "dnk_0123456789abcdef0123456789abcdef_invalid_secret"
+    assert client.get("/api/v1/albums/demo", headers={"Authorization": f"Bearer {invalid_key}"}).status_code == 401
+    assert client.get("/api/v1/stream/demo", headers={"Authorization": f"Bearer {valid_key}"}).status_code == 403
+    assert client.get("/api/v1/admin/unknown", headers={"Authorization": f"Bearer {valid_key}"}).status_code == 403
