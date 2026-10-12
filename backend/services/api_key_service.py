@@ -61,7 +61,9 @@ class ApiKeyService:
                 expires_at = parsed_expiry.astimezone(timezone.utc).isoformat()
             except (TypeError, ValueError):
                 raise ValueError("Expiry must be an ISO-8601 timestamp in the future")
-        if len(await self._store.list_active_for_user(user_id, _now())) >= MAX_ACTIVE_API_KEYS:
+        now = _now()
+        await self._store.prune_inactive(now)
+        if len(await self._store.list_active_for_user(user_id, now)) >= MAX_ACTIVE_API_KEYS:
             raise ConflictError(f"API-key limit reached ({MAX_ACTIVE_API_KEYS})")
         key_id, secret = uuid4().hex, secrets.token_urlsafe(32)
         plaintext = f"{KEY_PREFIX}_{key_id}_{secret}"

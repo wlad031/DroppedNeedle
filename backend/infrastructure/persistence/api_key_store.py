@@ -68,6 +68,14 @@ class ApiKeyStore(PersistenceBase):
             last_used_at=row["last_used_at"], revoked_at=row["revoked_at"],
         )
 
+    async def prune_inactive(self, now: str) -> None:
+        await self._write(
+            lambda conn: conn.execute(
+                "DELETE FROM auth_api_keys WHERE revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at <= ?)",
+                (now,),
+            )
+        )
+
     async def insert(self, row: ApiKeyRow) -> None:
         await self._write(lambda conn: conn.execute(
             "INSERT INTO auth_api_keys (id,user_id,name,secret_hash,scopes_json,created_at,expires_at,last_used_at,revoked_at) VALUES (?,?,?,?,?,?,?,?,?)",
