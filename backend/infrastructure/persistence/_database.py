@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 """Shared SQLite infrastructure for all persistence stores."""
+
 
 import asyncio
 from collections import OrderedDict

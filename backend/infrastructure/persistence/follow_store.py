@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 """Per-user Follow + auto-download persistence.
+
 
 ``foreign_keys = True`` (``PRAGMA foreign_keys=ON``) is what makes the
 ``ON DELETE CASCADE`` to ``auth_users(id)`` fire when a user is deleted.

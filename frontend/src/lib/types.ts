@@ -2808,6 +2808,34 @@ export interface AppPasswordCreateResponse {
 	app_password: AppPasswordView;
 }
 
+export type ApiKeyScope =
+	| 'catalog:read'
+	| 'requests:read'
+	| 'requests:write'
+	| 'playlists:read'
+	| 'playlists:write'
+	| 'scrobble:write';
+
+export interface ApiKeyView {
+	id: string;
+	name: string;
+	scopes: ApiKeyScope[];
+	created_at: string;
+	expires_at: string | null;
+	last_used_at: string | null;
+}
+
+export interface ApiKeyListResponse {
+	items: ApiKeyView[];
+	cap: number;
+	active_count: number;
+}
+
+export interface ApiKeyCreateResponse {
+	key: string;
+	api_key: ApiKeyView;
+}
+
 // Admin oversight roster: every user's active app-passwords (never a secret).
 export interface AdminAppPasswordView {
 	id: string;

@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Favorites persistence store: user_favorites table.
 
 Unified on UserRecord.id regardless of which protocol wrote the row. Lives in the
 shared WAL db (FK to auth_users).
 """
 
-from __future__ import annotations
 
 import sqlite3
 import threading

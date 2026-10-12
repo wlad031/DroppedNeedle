@@ -292,6 +292,12 @@ Link Last.fm from Profile > Scrobbling & Discovery after the admin saves the ins
 
 The first account is always admin. Later accounts are created by an admin or automatically on first Jellyfin, Plex, or OIDC sign-in (all start as User). Every login method toggles in the UI; no environment variables involved. Sessions last 30 days and die with the account if an admin deletes it.
 
+### REST API keys
+
+Profile > API Keys creates automation credentials independently from Connect Apps passwords. A new key is shown exactly once; save it in a secret manager and send it as `Authorization: Bearer dnk_<id>_<secret>`. Keys can have an optional expiry and can be revoked immediately by their owner; an admin can revoke a known key id during an incident, but cannot inventory another user's keys.
+
+Keys are deny-by-default. The available scopes are `catalog:read`, `requests:read`, `requests:write`, `playlists:read`, `playlists:write`, and `scrobble:write`. They only cover those `/api/v1` automation endpoints. Media streaming and downloads, settings, users, plugins, imports, secrets, and every unregistered route reject API keys. Browser sessions retain their existing permissions, and all endpoint role/ownership checks still apply after key scope verification.
+
 <details>
 <summary>Setting up OIDC</summary>
 

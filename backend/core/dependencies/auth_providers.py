@@ -30,6 +30,16 @@ def get_auth_service() -> "AuthService":
 
 
 @singleton
+def get_api_key_service() -> "ApiKeyService":
+    from infrastructure.persistence.api_key_store import ApiKeyStore
+    from services.api_key_service import ApiKeyService
+
+    settings = get_settings()
+    store = ApiKeyStore(settings.library_db_path, get_persistence_write_lock())
+    return ApiKeyService(store, get_auth_store())
+
+
+@singleton
 def get_plex_user_auth_service() -> "PlexUserAuthService":
     from services.plex_user_auth_service import PlexUserAuthService
     from core.dependencies.repo_providers import get_plex_repository, get_user_connections_store
