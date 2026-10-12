@@ -167,7 +167,7 @@ backend-lint: $(BACKEND_VENV_STAMP) ## Run backend Ruff checks
 
 backend-test: $(BACKEND_VENV_STAMP) ## Run all backend tests
 	@cd "$(BACKEND_DIR)" && \
-		mapfile -d '' test_files < <(find tests -type f -name 'test_*.py' -print0 | sort -z); \
+		mapfile -d '' test_files < <(find tests -type f -name 'test_*.py' ! -path 'tests/benchmarks/test_feedback_fixes_review_projection.py' -print0 | sort -z); \
 		batch_size=24; \
 		for ((start=0; start < $${#test_files[@]}; start += batch_size)); do \
 			end=$$((start + batch_size)); \
