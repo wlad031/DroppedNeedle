@@ -1,0 +1,8 @@
+{
+  "name": "droppedneedle-verification",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "test": "pnpm --dir frontend exec vitest run src/lib/components/profile/ProfileApiKeys.svelte.spec.ts"
+  }
+}
