@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Jellyfin id-map persistence: compat_id_map table.
 
 Maps stable 32-hex Jellyfin GUIDs <-> (kind, internal_id). Bijective so
 ``/Items/{id}`` (which carries no type) resolves. Lives in the shared WAL db.
 """
 
-from __future__ import annotations
 
 import sqlite3
 import threading

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """App-password persistence store: connect_app_passwords table.
 
 Lives in the shared WAL database (same ``library_db_path`` as AuthStore) so the
@@ -5,7 +7,6 @@ Lives in the shared WAL database (same ``library_db_path`` as AuthStore) so the
 ``services/compat/app_password_service.py``.
 """
 
-from __future__ import annotations
 
 import sqlite3
 import threading

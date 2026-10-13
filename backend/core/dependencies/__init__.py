@@ -6,6 +6,7 @@ Re-exported here so ``from core.dependencies import X`` keeps working.
 from .auth_providers import (  # noqa: F401
     get_auth_store,
     get_auth_service,
+    get_api_key_service,
     get_plex_user_auth_service,
     get_jellyfin_user_auth_service,
     get_oidc_user_auth_service,

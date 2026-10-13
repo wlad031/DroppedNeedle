@@ -13,6 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.openapi.utils import get_openapi
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
@@ -26,6 +27,7 @@ from api.compat.jellyfin.router import router as jellyfin_router
 from api.compat.subsonic.router import router as subsonic_router
 from api.v1.routes import (
     albums,
+    api_keys,
     artists,
     auth,
     cache,
@@ -330,6 +332,7 @@ def create_isolated_target_application(
         scrobble.router,
         now_playing.router,
         profile.router,
+        api_keys.router,
         playlists.router,
         download.router,
         import_drop.router,
@@ -444,6 +447,7 @@ def _include_complete_target_routes(app: FastAPI) -> None:
         now_playing.router,
         events.router,
         profile.router,
+        api_keys.router,
         playlists.router,
         version.router,
         download.router,
@@ -826,6 +830,21 @@ async def production_target_lifespan(app: FastAPI):
         )
 
 
+def _install_api_key_openapi(app: FastAPI) -> None:
+    """Expose the API-key bearer contract without marking public routes secure."""
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
+        schema.setdefault("components", {}).setdefault("securitySchemes", {})["ApiKeyBearer"] = {
+            "type": "http", "scheme": "bearer", "bearerFormat": "dnk_<id>_<secret>",
+            "description": "Optional scoped REST API key. Browser session bearer tokens also remain supported. API keys are deny-by-default; see Profile > API Keys and the README for allowed scopes.",
+        }
+        app.openapi_schema = schema
+        return schema
+    app.openapi = custom_openapi
+
+
 def create_production_target_application() -> FastAPI:
     """Build the process that is selected only by the authorized offline replacement."""
 
@@ -909,6 +928,7 @@ def create_production_target_application() -> FastAPI:
         return {"status": "ok", "message": "DroppedNeedle backend running"}
 
     _include_complete_target_routes(app)
+    _install_api_key_openapi(app)
     _install_target_overrides(app)
     app.add_middleware(
         CompatPathCaseMiddleware,

@@ -1,4 +1,6 @@
+import json
 import logging
+import re
 import time
 from typing import Annotated
 
@@ -51,6 +53,18 @@ _PUBLIC_PATHS: frozenset[str] = frozenset({
 })
 
 # Prefix matches for paths that have sub-routes (Swagger UI assets, etc.)
+# API keys are deliberately narrower than signed-in browser sessions.  The
+# registry is evaluated only for `dnk_` credentials; absence is a deny.
+_API_KEY_POLICY: tuple[tuple[frozenset[str], str, re.Pattern[str]], ...] = (
+    (frozenset({"GET", "HEAD"}), "catalog:read", re.compile(r"^/api/v1/(?:search|artists|albums|covers)(?:/|$)")),
+    (frozenset({"GET", "HEAD"}), "requests:read", re.compile(r"^/api/v1/(?:requests|requests-page)(?:/|$)")),
+    (frozenset({"POST", "PUT", "PATCH", "DELETE"}), "requests:write", re.compile(r"^/api/v1/(?:requests|requests-page)(?:/|$)")),
+    (frozenset({"GET", "HEAD"}), "playlists:read", re.compile(r"^/api/v1/playlists(?:/|$)")),
+    (frozenset({"POST", "PUT", "PATCH", "DELETE"}), "playlists:write", re.compile(r"^/api/v1/playlists(?:/|$)")),
+    (frozenset({"POST", "PUT", "PATCH", "DELETE"}), "scrobble:write", re.compile(r"^/api/v1/scrobble(?:/|$)")),
+)
+
+
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/v1/docs",
     "/api/v1/redoc",
@@ -240,13 +254,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
         from core.dependencies.auth_providers import get_auth_service
         auth_service = get_auth_service()
  
-        result = await auth_service.verify_token(raw_token)
-        if result is None:
-            return self._unauthorized("Invalid or expired token")
- 
-        user, token = result
-        request.state.user = user
-        request.state.token = token
+        # `dnk_` is a dedicated scoped REST credential.  Compatibility
+        # app-passwords never enter this path and remain protocol-only.
+        if re.match(r"^dnk_[0-9a-f]{32}_", raw_token):
+            from core.dependencies.auth_providers import get_api_key_service
+
+            key_result = await get_api_key_service().verify(raw_token)
+            if key_result is None:
+                return self._unauthorized("Invalid or expired API key")
+            user, api_key = key_result
+            if not self._api_key_allows(request.method, path, set(json.loads(api_key.scopes_json))):
+                return self._forbidden("API key is not authorized for this route")
+            request.state.user = user
+            request.state.api_key = api_key
+            request.state.token = None
+        else:
+            result = await auth_service.verify_token(raw_token)
+            if result is None:
+                return self._unauthorized("Invalid or expired token")
+            user, token = result
+            request.state.user = user
+            request.state.token = token
+            request.state.api_key = None
 
         workload_gate = None
         if self._tracks_interactive_activity(path):
@@ -262,6 +291,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         finally:
             if workload_gate is not None:
                 workload_gate.end_interactive_request()
+
+    @staticmethod
+    def _api_key_allows(method: str, path: str, scopes: set[str]) -> bool:
+        if re.fullmatch(r"/api/v1/playlists/[^/]+/request-missing", path):
+            return method == "POST" and "requests:write" in scopes
+        return any(method in methods and pattern.match(path) and scope in scopes for methods, scope, pattern in _API_KEY_POLICY)
 
     @staticmethod
     def _tracks_interactive_activity(path: str) -> bool:
@@ -287,6 +322,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return auth[7:].strip() or None
         # httpOnly session cookie (browser)
         return request.cookies.get("droppedneedle_session") or None
+
+    @staticmethod
+    def _forbidden(detail: str) -> MsgSpecJSONResponse:
+        return MsgSpecJSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"error": {"code": "FORBIDDEN", "message": detail, "details": None}},
+        )
 
     @staticmethod
     def _unauthorized(detail: str) -> MsgSpecJSONResponse:

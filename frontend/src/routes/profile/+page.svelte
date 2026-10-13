@@ -47,6 +47,7 @@
 	import ScrobblingDiscoveryCard from '$lib/components/profile/ScrobblingDiscoveryCard.svelte';
 	import SpotifyConnectionCard from '$lib/components/profile/SpotifyConnectionCard.svelte';
 	import ProfileConnectApps from '$lib/components/profile/ProfileConnectApps.svelte';
+	import ProfileApiKeys from '$lib/components/profile/ProfileApiKeys.svelte';
 	import PageSectionToc from '$lib/components/PageSectionToc.svelte';
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
@@ -775,6 +776,10 @@
 
 				<div id="connect-apps" class="scroll-mt-24 xl:ml-40">
 					<ProfileConnectApps />
+				</div>
+
+				<div id="api-keys" class="scroll-mt-24 xl:ml-40">
+					<ProfileApiKeys />
 				</div>
 
 				<div id="scrobbling" class="scroll-mt-24 xl:ml-40">

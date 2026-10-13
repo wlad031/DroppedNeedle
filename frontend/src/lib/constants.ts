@@ -812,6 +812,10 @@ export const API = {
 		sourcePriority: () => '/api/v1/download-clients/source-priority',
 		wanted: () => '/api/v1/download-clients/wanted'
 	},
+	apiKeys: {
+		list: () => '/api/v1/profile/api-keys',
+		item: (id: string) => `/api/v1/profile/api-keys/${id}`
+	},
 	connectApps: {
 		settings: () => '/api/v1/connect-apps/settings',
 		appPasswords: () => '/api/v1/connect-apps/app-passwords',

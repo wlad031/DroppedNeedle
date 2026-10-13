@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Auth persistence store: users, auth_providers, tokens tables."""
 
-from __future__ import annotations
 
 import hashlib, hmac, logging, os, re, sqlite3, threading
 from base64 import urlsafe_b64encode
